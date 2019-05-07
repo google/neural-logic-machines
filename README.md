@@ -11,12 +11,14 @@ as neural operators that can be applied over the premise tensors and generate co
 
 **[Neural Logic Machines](https://arxiv.org/pdf/1904.11694.pdf)**
 <br />
-[Honghua Dong](http://dhh1995.github.io),
-[Jiayuan Mao](http://jiayuanm.com),
+[Honghua Dong](http://dhh1995.github.io)\*,
+[Jiayuan Mao](http://jiayuanm.com)\*,
 [Tian Lin](https://www.linkedin.com/in/tianl),
 [Chong Wang](https://chongw.github.io/),
 [Lihong Li](https://lihongli.github.io/), and
 [Denny Zhou](https://dennyzhou.github.io/)
+<br />
+(\*: indicates equal contribution.)
 <br />
 In International Conference on Learning Representations (ICLR) 2019
 <br />
