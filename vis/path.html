@@ -1,0 +1,428 @@
+<html>
+
+<head>
+<title>Shortest path</title>
+<style>
+#container {
+  width: 100%;
+  height: 1200px;
+}
+
+#plot {
+  width: 1100px;
+  height: 1100px;
+  float: left;
+}
+
+#step-info {
+  width: 500px;
+  height: 100%;
+  float: left;
+  font-size: 25px;
+}
+
+#step-info li {
+  margin-top: 10px;
+}
+
+#step-info table {
+  font-size: 20px;
+  border-top: 1px solid black;
+  border-bottom: 1px solid black;
+}
+
+#step-info table td {
+  width: 150px;
+  text-align: center;
+}
+
+#step-info tbody tr:first-of-type {
+  background: rgba(255, 0, 0, .2);
+}
+
+#control-container {
+  width: 100%;
+}
+
+/* SVG */
+svg .node circle {
+  r: 20;
+  stroke: black;
+  stroke-width: 2;
+  fill: white;
+}
+svg .node text {
+  font-size: 24px;
+  stroke: black;
+  text-anchor: middle;
+  transform: translate(0px, 6px);
+}
+
+/* Mark source, target and selected. */
+svg .node.source circle {
+  fill: #9ff;
+}
+svg .node.target circle {
+  fill: #f9f;
+}
+svg .node.selected circle {
+  stroke: red;
+  stroke-width: 4;
+}
+svg .node.selected text {
+  stroke: red;
+  stroke-width: 2;
+}
+svg .node.highlighted circle {
+  stroke: blue;
+  stroke-width: 8;
+}
+svg .node.highlighted text {
+  stroke: blue;
+  stroke-width: 2;
+}
+
+svg .edge line {
+  stroke: #333;
+}
+svg .edge.candidate line {
+  stroke: black;
+  stroke-width: 2;
+}
+svg .edge.selected line {
+  stroke: red;
+  stroke-width: 4;
+}
+svg .edge.highlighted line {
+  stroke: blue;
+  stroke-width: 4;
+}
+
+</style>
+</head>
+<body>
+
+
+<div id='container'>
+  <svg id='plot'></svg>
+
+  <div id='step-info'>
+    <h2>Shortest Path</h2>
+    <ul>
+    </ul>
+  </div>
+</div>
+
+
+<div id='control-container'>
+  <button id='go'>Run</button>
+</div>
+
+<script src='lib/jquery-3.3.1.js'></script>
+<script src='lib/d3.v4.js'></script>
+<script>
+let gSimulation;
+
+
+function generatePredictTable(arr) {
+  const table = $('<table>');
+  const thead = $(`<thead>
+                    <tr> <th>Top Candidates</th> <th>Probability</th> <th>Logits</th> </tr>
+                  </thead>`);
+  const tbody = $('<tbody>');
+
+  const content = arr.map(a => {
+    const f1 = a[1].toFixed(4), f2 = a[2].toFixed(4);
+    return $(`<tr><td>${a[0]}</td><td>${f1}</td><td>${f2}</td></tr>`);
+  });
+  table.append(thead)
+    .append(tbody);
+  tbody.append(content);
+  return table;
+}
+
+
+class GraphWalker {
+
+  constructor(graph, current, coordinates, moves, policies, destination,
+              width=1000.0, height=1000.0, scale=0.6, dx=50, dy=50,
+              root='#plot', stepInfo='#step-info ul') {
+    this.graph = graph;
+    this.current = current;
+    this.coordinates = coordinates;
+    this.moves = moves;
+    this.policies = policies;
+    this.starting = current[0];
+    this.destination = destination;
+    this.node_count = graph.length;
+    this.sleep_time = 1000;
+    this.durationTime = 500;
+
+    this.scaleX = width * scale;
+    this.scaleY = height * scale;
+    this.dx = dx;
+    this.dy = dy;
+    this.root = d3.select(root);
+    this.stepInfo = $(stepInfo);
+    const _this = this;
+    this.pos = this.coordinates.map(function (p) {
+      return {
+        x: p[0] * _this.scaleX + _this.dx,
+        y: p[1] * _this.scaleY + _this.dy
+      };
+    });
+    console.log('pos: ', this.pos);
+
+    this.sortedEdges = [];
+    for (let i = 0; i < this.node_count; ++i) {
+      // Existed edge(i, j) with j larger than i.
+      const indices = this.existedEdges(i).filter(j => j > i);
+      for (let j of indices) {
+        const edge = [i, j];
+        this.sortedEdges.push(edge);
+      }
+    }
+    // console.log('sorted edges: ', this.sortedEdges);
+
+    // Insert edges.
+    this.edgesMap = {};
+    this.edges = [];
+    for (let e of this.sortedEdges) {
+      const [i, j] = e;
+      const edge  = this.attachEdge(i, j);
+      const key = this.key(i, j);
+      this.edgesMap[key] = edge;
+      this.edges.push(edge);
+    }
+    console.log('edges:', this.edges);
+
+    // Insert nodes.
+    this.nodes = [];
+    for (let i = 0; i < this.node_count; ++i) {
+      const node = this.attachNode(i);
+      this.nodes.push(node);
+    }
+    console.log('nodes:', this.nodes);
+
+    // Mark source and taget nodes.
+    const source = this.current[0];
+    const target = this.destination;
+    this.nodes[source].element.classed('source', true);
+    this.nodes[target].element.classed('target', true);
+
+    // Sensitive strengths: charge, forceX, forceY.
+    const simulation = d3.forceSimulation()
+      .force('link', d3.forceLink().id(function(d) { return d.id; }))
+      .force('charge', d3.forceManyBody().strength(-100))
+      .force('center', d3.forceCenter().x(width * .5).y(height * .5))
+      .force('forceX', d3.forceX().strength(.02).x(width * .5))
+      .force('forceY', d3.forceY().strength(.02).y(height * .5))
+      .force('collision', d3.forceCollide());
+
+    simulation.nodes(this.nodes)
+      .on('tick', tick);
+    simulation.force('link').links(this.edges);
+    gSimulation = simulation;
+
+    function tick() {
+      $(_this.nodes).each(function (i, data) {
+        _this.pos[i].x = data.x + data.vx;
+        _this.pos[i].y = data.y + data.vy;
+        data.updatePos();
+      });
+      $(_this.edges).each(function (i, data) {
+        // console.log(data);
+        data.updatePos();
+      });
+    }
+  }
+
+  /* Returns indices indicating existed edge of given an adjacency row.*/
+  existedEdges(i) {
+    const arr = this.graph[i];
+    const indices = [];
+    for (let i = 0; i < arr.length; ++i) {
+      if (arr[i] > 0) {
+        indices.push(i);
+      }
+    }
+    return indices;
+  }
+
+  key(i, j) {
+    return `${i}-${j}`;
+  }
+
+  run() {
+    const _this = this;
+    let t = 0;
+    const total = this.current.length;
+    const id = setInterval(nextAnimation, this.sleep_time);
+
+    function nextAnimation() {
+      if (t >= total - 1) {
+        clearInterval(id);
+      }
+      _this.animateMove(t);
+      ++t;
+    }
+  }
+
+  animateMove(t) {
+    let prev = null;
+    let cur = this.current[t];
+    if (t == 0) {
+      this.stepInfo.append($(`<li>Step ${t}: From ${cur}.</li>`));
+      this.animateNode(cur);
+
+      this.applyCandidateEdges(cur, true);
+    } else {
+      prev = this.current[t-1];
+      // console.log(`${prev}--${cur} CanReach: `, this.canReach(prev, cur));
+
+      if (this.validMove(prev, cur)) {
+        let arr = this.policies[t-1];
+        arr = arr.slice(0, 3);
+        const table = generatePredictTable(arr);
+
+        this.stepInfo.append($(`<li>Step ${t}: ${prev} => ${cur}.</li>`).append(table));
+        this.animateNode(cur);
+        this.animateEdge(prev, cur);
+
+        this.applyCandidateEdges(prev, false);
+        if (t != this.current.length - 1) this.applyCandidateEdges(cur, true);
+      } else {
+        // invalid move.
+        this.stepInfo.append($(`<li>Step ${t}: ${prev} => ${cur} (invalid).</li>`).append(table));
+        this.applyCandidateEdges(prev, false);
+      }
+    }
+  }
+
+  animateNode(i) {
+    const node = this.nodes[i].element;
+    node.transition()
+      .on('start', function() {
+        d3.select(this)
+          .classed('selected', false)
+          .classed('highlighted', true)
+      })
+      .duration(this.durationTime)
+      .on('end', function() {
+        d3.select(this)
+          .classed('selected', true)
+          .classed('highlighted', false);
+      });
+  }
+
+  acsend(i, j) {
+    return (i < j) ? [i, j] : [j, i];
+  }
+
+  applyCandidateEdges(i, boolFlag) {
+    const _this = this;
+    const candidates = this.existedEdges(i).map(c => {
+        const k = _this.acsend(i, c);
+        const key = _this.key(k[0], k[1]);
+        return _this.edgesMap[key];
+    });
+    $(candidates).each(function(i, c) {
+      c.element.classed('candidate', boolFlag);
+    });
+  }
+
+  animateEdge(i, j) {
+    const k = this.acsend(i, j);
+    const key = this.key(k[0], k[1]);
+    const edge = this.edgesMap[key].element;
+    edge.transition()
+      .on('start', function() {
+        d3.select(this)
+          .classed('selected', false)
+          .classed('highlighted', true);
+      })
+      .duration(this.durationTime)
+      .on('end', function() {
+        d3.select(this)
+          .classed('selected', true)
+          .classed('highlighted', false);
+      });
+  }
+
+  attachNode(i) {
+    // <circle cx='${pos.x}' cy='${pos.y}' r='5' stroke='green' stroke-width='4' fill='yellow'/>;
+    const _this = this;
+    const data = {
+      id: i,
+      x: _this.pos[i].x,
+      y: _this.pos[i].y,
+      vx: 0.0,
+      vy: 0.0,
+    };
+    const g = this.root.append('g')
+          .data([data])
+          .attr('class', 'node');
+    const circle = g.append('circle');
+    const text = g.append('text').text(function(d) { return d.id; });
+    data.element = g;
+    data.updatePos = function () {
+      g.attr('transform', function(d) {
+        const p = _this.pos[d.id];
+        return `translate(${p.x}, ${p.y})`;
+      });
+    }
+    data.updatePos();
+    return data;
+  }
+
+  attachEdge(i, j) {
+    // <line x1='0' y1='80' x2='100' y2='20' stroke='black' />;
+    const _this = this;
+    const data = {
+      source: { id: i},
+      target: { id: j}
+    };
+    const g = this.root.append('g')
+          .attr('class', 'edge')
+          .data([data]);
+    const line = g.append('line');
+    data.element = g;
+    data.updatePos = function() {
+      line.attr('x1', function(d) { return _this.pos[d.source.id].x; })
+          .attr('y1', function(d) { return _this.pos[d.source.id].y; })
+          .attr('x2', function(d) { return _this.pos[d.target.id].x; })
+          .attr('y2', function(d) { return _this.pos[d.target.id].y; });
+    }
+    data.updatePos();
+    return data;
+  }
+
+  validMove(prevIndex, curIndex) {
+    return prevIndex != curIndex;
+  }
+
+  canReach(i, j) {
+    return this.graph[i][j] > 0;
+  }
+}
+
+let app = null;
+const DATA_URL = 'path.json';
+d3.json(DATA_URL, function(data) {
+  console.log(data);
+
+  const {graph, current, coordinates, moves, policies, destination} = data;
+
+  app = new GraphWalker(graph, current, coordinates, moves, policies, destination);
+});
+
+$('#go').click(function() {
+  if (app) {
+    app.run();
+  }
+});
+
+</script>
+</body>
+</html>
+

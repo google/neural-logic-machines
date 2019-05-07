@@ -1,0 +1,3 @@
+[submodule "third_party/Jacinle"]
+	path = third_party/Jacinle
+	url = https://github.com/vacancy/Jacinle

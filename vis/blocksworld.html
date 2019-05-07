@@ -1,0 +1,440 @@
+<html>
+
+<head>
+  <meta charset="utf-8">
+
+<style>
+
+#world0 {
+}
+#world1 {
+}
+
+.world-container {
+  float: left;
+  position: relative;
+}
+
+.world {
+  width: 1850px;
+  height: 650px;
+  position: relative;
+  border-left: 1px solid black;
+  border-bottom: 1px solid black;
+}
+.world-container .title {
+  position: absolute;
+  top: 150px;
+  right: 20px;
+}
+
+.world .num {
+  position: absolute;
+}
+
+.num {
+  width: 29px;
+  height: 29px;
+  border: 1px solid black;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.num > span {
+  position: relative;
+  top: 30%;
+  /* display: none; */
+}
+.to-move {
+  background-color: #f99;
+}
+.to-place {
+  border-top: 5px solid red;
+  background-color: #99f;
+}
+
+#info-container {
+  float: left;
+  margin-top: 20px;
+  width: 100%;
+}
+
+#log-container {
+  width: 140px;
+  height: 180px;
+  float: left;
+}
+
+#step-container {
+}
+
+#swap-container .title {
+  width: 100%;
+}
+
+#swap-container .item {
+  width: 100%;
+  margin: 0 auto;
+}
+
+#swap-container .item > div {
+  width: 60px;
+  margin: 0 auto;
+  float: left;
+}
+
+#compare {
+  float: left;
+}
+#compare .compare-chart {
+  float: left;
+  margin-left: 20;
+}
+#compare .compare-chart.first {
+  margin-left: 0;
+}
+#compare .compare-title {
+  text-align: center;
+}
+
+#footer {
+  margin-top: 10px;
+  width: 100%;
+  height: 600px;
+}
+</style>
+</head>
+
+<body>
+
+
+<div id='world0' class='world-container'>
+  <!--
+  <div class='num'><span>0</span></div>
+  -->
+  <div class='world'></div>
+  <div class='title'>World 0 (Source)</div>
+</div>
+
+<br/>
+
+<div id='world1' class='world-container'>
+  <div class='world'></div>
+  <div class='title'>World 1 (Target)</div>
+</div>
+
+<div id='info-container'>
+  <div id='log-container'>
+    <div><button id="go">Run</button></div>
+
+    <div id='step-container'>
+      <span>Step: </span>
+      <span id='step'>?</span>
+    </div>
+    <div id='swap-container'>
+      <div class='swap-title'>
+        Move (<span id='i'/>?</span>, <span id='j'>?</span>)
+      </div>
+      <div class='item'>
+        <div id='i-content'></div>
+        <div id='j-content'></div>
+      </div>
+    </div>
+  </div>
+
+  <div id='compare'>
+    <div>Inputs: Comparison Matrix</div>
+    <div style='width: 800px'>
+      <div class='compare-chart first'>
+         <canvas></canvas>
+         <div class='compare-title'>World 0 : World 0</div>
+      </div>
+      <div class='compare-chart'>
+         <canvas></canvas>
+         <div class='compare-title'>World 0 : World 1</div>
+      </div>
+      <div class='compare-chart'>
+         <canvas></canvas>
+         <div class='compare-title'>World 1 : World 1</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id='footer'>
+</div>
+
+<script src='lib/jquery-3.3.1.js'></script>
+<script src='lib/d3.v4.js'></script>
+<script>
+
+
+class BlockWorld {
+
+  constructor() {
+    this.inputs = [];
+    this.blocks0 = []; // world0
+    this.blocks1 = []; // world1
+    this.locations = {};
+    this.size = 0;
+
+    this.duration = 500;
+    this.easing = 'linear';
+    this.sleep_time = 1000;
+    this.root_world0 = $('#world0 .world');
+    this.root_world1 = $('#world1 .world');
+    this.canvases = $('#compare canvas');
+    this.hideGrids = false;
+
+    this.create_fn = function(i, a) {
+      const [x, y] = a;
+      if (i == 0) {
+        return $(`<div></div>`); // empty.
+      } else {
+        return $(`<div class='num'><span>${i}</span></div>`);
+      }
+    }
+  }
+
+  calcX(i) {
+    return i * 35 + 5;
+  }
+  calcY(i) {
+    return (i-1) * 30;
+  }
+
+  createBlock(i, a) {
+    return this.create_fn(i, a);
+  }
+
+  setMoves(moves) {
+    this.moves = moves;
+  }
+
+  setNewPos(new_pos) {
+    this.new_pos = new_pos;
+  }
+
+  init(inputs) {
+    this.root_world0.html('');
+    this.root_world1.html('');
+
+    this.inputs = inputs;
+    const [inputs0, inputs1] = [inputs[0], inputs[1]];
+    this.size = inputs0.length;
+
+    this.blocks0 = [];
+    // World 0. Source to be changed.
+    for (let i = 0; i < this.size; i++) {
+      const value = inputs0[i];
+      const ele = this.createBlock(i, value);
+      const [x, y] = value;
+
+      const block = {
+        ele,
+        value,
+        pos: {
+          left: this.calcX(x),
+          bottom: this.calcY(y),
+        },
+        x,
+        y,
+      };
+      this.blocks0.push(block);
+      block.ele.css(block.pos);
+      this.root_world0.append(ele);
+    }
+
+    // World 1. Target.
+    this.blocks0_world1 = [];
+    for (let i = 0; i < this.size; i++) {
+      const value = inputs1[i];
+      const ele = this.createBlock(i, value);
+      const [x, y] = value;
+
+      const block = {
+        ele,
+        value,
+        pos: {
+          left: this.calcX(x),
+          bottom: this.calcY(y),
+        },
+        x,
+        y,
+      };
+      this.blocks1.push(block);
+
+      block.ele.css(block.pos);
+      this.root_world1.append(ele);
+    }
+  }
+
+  move(i, j, destination) {
+    const block_i = this.blocks0[i];
+    const block_j = this.blocks0[j];
+
+    const from = block_i;
+    const to = block_j;
+
+    // Swap:
+    //[from.pos, to.pos] = [to.pos, from.pos];
+    // from.value = [to.value[0], to.value[1] + 1];
+    from.value = destination;
+    from.pos = {
+      left: this.calcX(from.value[0]),
+      bottom: this.calcY(from.value[1])
+    };
+    console.log('after: ', from, to);
+
+    const _this = this;
+
+    function create_options(class_style, should_draw) {
+      return {
+        duration: _this.duration,
+        easing: _this.easing,
+        start: function() {
+          $(this).addClass(class_style);
+        },
+        always: function() {
+          $(this).removeClass(class_style);
+          if(should_draw) {_this.drawGrids(); }
+        }
+      };
+    }
+
+    from.ele.animate(from.pos, create_options('to-move', false));
+    to.ele.animate(to.pos, create_options('to-place', true));
+  }
+
+  animateMoves() {
+    const _this = this;
+    let cur = 0;
+    const total = this.moves.length;
+    const id = setInterval(nextAnimation, this.sleep_time);
+
+    function nextAnimation() {
+      if (cur >= total - 1) {
+        clearInterval(id);
+      }
+      const m = _this.moves[cur];
+      const i = m[0];
+      const j = m[1];
+      const destination = _this.new_pos[cur];
+
+      const text_i = _this.blocks0[i].value;
+      const text_j = _this.blocks0[j].value;
+
+      $('#step').text(cur);
+      $('#i').html(`${i}`);
+      $('#j').html(`${j}`);
+      cur++;
+      _this.move(i, j, destination);
+    }
+  }
+
+  drawGrids(index, w=250.0, h=250.0) {
+    if (this.hideGrids) {
+      $('#compare').hide();
+      return;
+    }
+
+    this.drawGrid(this.canvases[0], this.blocks0, this.blocks0, w, h);
+    this.drawGrid(this.canvases[1], this.blocks0, this.blocks1, w, h);
+    this.drawGrid(this.canvases[2], this.blocks1, this.blocks1, w, h);
+  }
+
+  drawGrid(canvas, blocks0, blocks1, w=200.0, h=200.0) {
+    const ctx = canvas.getContext('2d');
+    const [width, height] = [w, h];
+    ctx.canvas.width  = width;
+    ctx.canvas.height = height;
+
+    const sss = this.size;
+    const sw = w / sss;
+    const sh = h / sss;
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < sss; i++) {
+      for (let j = 0; j < sss; j++) {
+        const x = i * sw;
+        const y = j * sh;
+
+        const v_i = blocks0[i];
+        const v_j = blocks1[j];
+        const symbol = this.getSymbol(v_i, v_j);
+        ctx.font = "10px Georgia";
+        ctx.fillStyle = '#000';
+        ctx.fillText(symbol, x+sw*0.23, y+sh*0.66);
+
+        ctx.strokeStyle = '#ccc';
+        ctx.rect(x, y, x+sw, y+sh);
+        // ctx.fillRect(x, y, x+sw, y+sh);
+        ctx.stroke();
+
+        //ctx.fillStyle = color;
+        //ctx.strokeStyle = '#ccc';
+
+        //ctx.rect(x, y, x+sw, y+sh);
+        //ctx.fillRect(x, y, x+sw, y+sh);
+        //ctx.stroke();
+      }
+    }
+  }
+
+  compIndex(a, b) {
+    // 0, 1, 2
+    // <  =  >
+    if (a < b) {
+      return 0;
+    } else if (a > b){
+      return 2;
+    } else {
+      return 1;
+    }
+  }
+
+  getSymbol(block_i, block_j) {
+    const [xi, yi] = block_i.value;
+    const [xj, yj] = block_j.value;
+    return SYMBOLS[this.compIndex(yi, yj)][this.compIndex(xi, xj)]
+  }
+}
+
+const SYMBOLS = [
+  ['↖', '↑', '↗'],     // up -- left. o, right
+  ['←', ' ', '→'],       // left o right
+  ['↙', '↓', '↘'],       // down -- left. o, right
+];
+
+
+const app = new BlockWorld();
+// app.init([]);
+app.hideGrids = true;
+
+const DATA_URL = 'blocksworld.json';
+d3.json(DATA_URL, function(data) {
+  const moves = data.moves;
+  const new_pos = data.new_pos;
+  const array = data.array;
+  console.log('array: ', array, ' moves: ', moves);
+
+  app.init(array);
+  app.setMoves(moves);
+  app.setNewPos(new_pos);
+  app.drawGrids();
+
+});
+
+$( "#go" ).click(function() {
+  // const from = 0;
+  // const to = 10;
+  // app.move(from, to);
+  app.animateMoves();
+});
+
+</script>
+</body>
+</html>
+

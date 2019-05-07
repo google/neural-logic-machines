@@ -1,0 +1,293 @@
+<html>
+
+<head>
+<style>
+#container {
+  width: 800px;
+  height: 200px;
+  position: relative;
+}
+
+#container .num {
+  position: absolute;
+}
+
+.num {
+  width: 40px;
+  height: 40px;
+  border: 1px solid black;
+  text-align: center;
+  vertical-align:middle;
+}
+
+.num > span {
+  position: relative;
+  top: 30%;
+}
+
+.selected {
+  background-color: #f99;
+}
+
+#log-container {
+  width: 500px;
+  height: 180px;
+  float: left;
+}
+
+#step-container {
+}
+
+#swap-container .title {
+  width: 100%;
+}
+
+#swap-container .item {
+  width: 100%;
+  margin: 0 auto;
+}
+
+#swap-container .item > div {
+  width: 60px;
+  margin: 0 auto;
+  float: left;
+}
+
+#compare {
+  float: left;
+}
+</style>
+</head>
+
+<body>
+
+<div id='container'>
+  <!--
+  <div id='block-0' class='num'><span>0</span></div>
+  <div id='block-1' class='num'><span>1</span></div>
+  <div id='block-2' class='num'><span>2</span></div>
+  <div id='block-3' class='num'><span>3</span></div>
+  <div id='block-4' class='num'><span>4</span></div>
+  <div id='block-5' class='num'><span>5</span></div>
+  <div id='block-6' class='num'><span>6</span></div>
+  <div id='block-7' class='num'><span>7</span></div>
+  <div id='block-8' class='num'><span>8</span></div>
+  <div id='block-9' class='num'><span>9</span></div>
+  <div id='block-10' class='num'><span>10</span></div>
+  -->
+</div>
+
+<div><button id="go">Run</button></div>
+
+<div id='log-container'>
+  <div id='step-container'>
+    <span>Step: </span>
+    <span id='step'>?</span>
+  </div>
+  <div id='swap-container'>
+    <div class='title'>
+      Swap (<span id='i'/>?</span>, <span id='j'>?</span>)
+    </div>
+    <div class='item'>
+      <div id='i-content'></div>
+      <div id='j-content'></div>
+    </div>
+  </div>
+</div>
+
+<div id='compare'>
+  <div>Inputs: Comparison Matrix</div>
+  <div><canvas></canvas></div>
+</div>
+
+
+<script src='lib/jquery-3.3.1.js'></script>
+<script src='lib/d3.v4.js'></script>
+<script>
+
+
+class Sort {
+
+  constructor() {
+    this.inputs = [];
+    this.blocks = [];
+    this.locations = {};
+
+    this.duration = 500;
+    this.easing = 'linear';
+    this.sleep_time = 1000;
+    this.root = $('#container');
+    this.grid = $('#compare canvas');
+
+    this.create_fn = function(i, a) {
+      return $(`<div class='num'><span>${a}</span></div>`);
+    }
+  }
+
+  calcX(i) {
+    return i * 50 + 20;
+  }
+
+  calcY(i) {
+    return i * 50 + 20;
+  }
+
+  createBlock(i, a) {
+    return this.create_fn(i, a);
+  }
+
+  setMoves(moves) {
+    this.moves = moves;
+  }
+
+  init(inputs=[]) {
+    this.root.html('');
+    this.inputs = inputs;
+
+    this.blocks = [];
+    for (let i = 0; i < inputs.length; i++) {
+      const input = inputs[i];
+      const ele = this.createBlock(i, input);
+      const block = {
+        ele,
+        value: input,
+        pos: {
+          left: this.calcX(i),
+          top: this.calcY(2)
+        }
+      };
+      this.blocks.push(block);
+      this.locations[i] = block;
+
+      block.ele.css(this.blocks[i].pos);
+      this.root.append(ele);
+    }
+  }
+
+  move(i, j) {
+    const block_i = this.locations[i];
+    const block_j = this.locations[j];
+    this.locations[i] = block_j;
+    this.locations[j] = block_i;
+
+    const from = block_i;
+    const to = block_j;
+
+    // Swap:
+    [from.pos, to.pos] = [to.pos, from.pos];
+
+    const _this = this;
+
+    const options = {
+      duration: this.duration,
+      easing: this.easing,
+      start: function() {
+        $(this).addClass('selected');
+      },
+      always: function() {
+        $(this).removeClass('selected');
+        _this.drawGrid();
+      }
+    };
+
+    from.ele.animate(from.pos, options);
+    to.ele.animate(to.pos, options);
+  }
+
+  animateMoves() {
+    const _this = this;
+    let cur = 0;
+    const total = this.moves.length;
+    const id = setInterval(nextAnimation, this.sleep_time);
+
+    function nextAnimation() {
+      if (cur >= total - 1) {
+        clearInterval(id);
+      }
+      const m = _this.moves[cur];
+      const i = m[0];
+      const j = m[1];
+
+      const text_i = _this.locations[i].value;
+      const text_j = _this.locations[j].value;
+
+      $('#step').text(cur);
+      $('#i').html(`${i}`);
+      $('#j').html(`${j}`);
+
+      $('#i-content').empty()
+        .append(_this.createBlock(0, text_i));
+      $('#j-content').empty()
+        .append(_this.createBlock(0, text_j));
+
+      cur++;
+      _this.move(i, j);
+    }
+  }
+
+  drawGrid(w=200.0, h=200.0) {
+    const canvas = this.grid[0];
+    const ctx = canvas.getContext('2d');
+    ctx.canvas.width  = w;
+    ctx.canvas.height = h;
+    const sw = w / this.inputs.length;
+    const sh = h / this.inputs.length;
+
+    for (let i = 0; i < this.inputs.length; i++) {
+      for (let j = 0; j < this.inputs.length; j++) {
+        const x = i * sw;
+        const y = j * sh;
+        const b_i = this.locations[i];
+        const b_j = this.locations[j];
+        const color = this.compare(b_i, b_j) ? '#fff' : '#000';
+
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#ccc';
+
+        ctx.rect(x, y, x+sw, y+sh);
+        ctx.fillRect(x, y, x+sw, y+sh);
+        ctx.stroke();
+      }
+    }
+  }
+
+  compare(block_i, block_j) {
+    return parseInt(block_i.value) < parseInt(block_j.value);  // Compare in int.
+  }
+}
+
+
+const app = new Sort();
+app.init([]);
+
+/*
+app.create_fn = function(i, a) {
+  const v = (220 - a * 10);
+  const color = `rgb(255, ${v}, 255)`;
+  return $(`<div class='num'><span></span></div>`)
+    .css('background-color', color);
+}*/
+
+
+const DATA_URL = 'sort.json';
+d3.json(DATA_URL, function(data) {
+  const moves = data.moves;
+  const array = data.array;
+  console.log('array', array, ' moves: ', moves);
+
+  app.init(array);
+  app.setMoves(moves);
+  app.drawGrid();
+});
+
+$( "#go" ).click(function() {
+  // const from = 0;
+  // const to = 10;
+  // app.move(from, to);
+  app.animateMoves();
+});
+
+</script>
+</body>
+</html>
+
